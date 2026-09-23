@@ -1,0 +1,51 @@
+{
+  "bg_prefix": "bg",
+  "slides": [
+    {
+      "accent": "#00E5FF",
+      "bg": "bg-01.png",
+      "frame": false,
+      "scene": "photorealistic portrait of a man with green eyes, moderate gray hair, darker beard, calm natural expression, black t-shirt, standing next to a futuristic autonomous car with glowing sensor pods and lidar on the roof, night city street, neon cyan and blue rim lighting, cinematic tech atmosphere, no text, no letters, no watermark",
+      "side": "right",
+      "subtitle": "І нам більше не доведеться сідати за кермо. Гортай — поясню чому.",
+      "title": "Чи повірите, що *безпілотні авто* захоплять світ? 🚗"
+    },
+    {
+      "accent": "#00E5FF",
+      "bg": "bg-02.png",
+      "frame": false,
+      "scene": "photorealistic portrait of a man with green eyes, moderate gray hair, darker beard, calm natural expression, black t-shirt, standing beside a large glowing holographic AI brain with neural network nodes, floating lidar point-cloud visualization of a street, dark studio, neon cyan and teal glow, cinematic tech atmosphere, no text, no letters, no watermark",
+      "side": "right",
+      "subtitle": "Сенсори, лідари й нейромережі реагують за мілісекунди — людина так не вміє.",
+      "title": "*ШІ* вже водить краще за нас 🤖"
+    },
+    {
+      "accent": "#00E5FF",
+      "bg": "bg-03.png",
+      "frame": false,
+      "scene": "photorealistic portrait of a man with green eyes, moderate gray hair, darker beard, calm natural expression, black t-shirt, standing next to a robotaxi with glowing headlights, huge floating holographic 24/7 clock and golden coins, dark city background, neon cyan and gold glow, cinematic tech atmosphere, no text, no letters, no watermark",
+      "side": "right",
+      "subtitle": "Машина працює 24/7, не втомлюється й не просить зарплату. Бізнес це вже порахував.",
+      "title": "Таксі без водія — *дешевше* в рази 💸"
+    },
+    {
+      "accent": "#00E5FF",
+      "bg": "bg-04.png",
+      "frame": false,
+      "scene": "photorealistic portrait of a man with green eyes, moderate gray hair, darker beard, calm natural expression, black t-shirt, standing in front of an autonomous car protected by a glowing holographic shield, radar waves emanating around the vehicle, dark studio, neon cyan and green glow, cinematic tech atmosphere, no text, no letters, no watermark",
+      "side": "right",
+      "subtitle": "Машина не відволікається на телефон і не сідає за кермо п'яною.",
+      "title": "Майже всі аварії — *помилка людини* 🛡️",
+      "text_width": 500
+    },
+    {
+      "accent": "#00E5FF",
+      "bg": "bg-05.png",
+      "frame": true,
+      "scene": "photorealistic portrait of a man with green eyes, moderate gray hair, darker beard, calm natural expression, black t-shirt, facing the camera with an engaging gesture, floating empty holographic chat bubbles around him, futuristic autonomous car blurred in the background, dark studio, neon cyan glow, cinematic tech atmosphere, no text, no letters, no watermark",
+      "side": "left",
+      "subtitle": "Напишіть «АВТО» в коментарях — і я розкажу, як безпілотники змінять наше життя.",
+      "title": "Хочете *дізнатися більше?* 💬"
+    }
+  ]
+}

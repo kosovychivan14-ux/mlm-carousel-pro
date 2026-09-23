@@ -330,7 +330,7 @@ def render_neon_slide(bg_path: str, slide: dict, style: dict) -> Image.Image:
     accent = slide.get("accent") or style.get("accent", "#00E5FF")
     accent_rgb = hex_to_rgb(accent)
     margin = style.get("text_margin", 80)
-    text_w = style.get("text_width", 640)
+    text_w = slide.get("text_width", style.get("text_width", 640))
     side = slide.get("side", "left")
     x = margin if side == "left" else W - margin - text_w
     top_y = slide.get("top_y", style.get("top_y", 110))
