@@ -82,18 +82,29 @@ def wrap(draw: ImageDraw.ImageDraw, text: str, font, max_w: int):
     return lines
 
 
-def draw_centered_block(draw, cx, top_y, lines, font, fill, line_gap=18, max_w=W - 160):
-    wrapped = []
-    for ln in lines:
-        wrapped.extend(wrap(draw, ln, font, max_w) or [""])
+def fit_font(draw: ImageDraw.ImageDraw, text: str, max_w: int, start_size: int):
+    """Зменшує кегль, доки рядок не влізе в ширину (для довгих слів)."""
+    size = start_size
+    while size > 24:
+        f = load_font(size)
+        if draw.textlength(text, font=f) <= max_w:
+            return f
+        size -= 4
+    return load_font(24)
+
+
+def draw_centered_block(draw, cx, top_y, lines, font, fill, line_gap=18,
+                        max_w=W - 160, shrink=False):
     y = top_y
-    for ln in wrapped:
+    for ln in lines:
         if not ln.strip():
             y += line_gap
             continue
-        lw = draw.textlength(ln, font=font)
-        draw.text((cx - lw / 2, y), ln, font=font, fill=fill)
-        y += font.size + line_gap
+        f = fit_font(draw, ln, max_w, font.size) if shrink else font
+        for sub in wrap(draw, ln, f, max_w) or [""]:
+            lw = draw.textlength(sub, font=f)
+            draw.text((cx - lw / 2, y), sub, font=f, fill=fill)
+            y += f.size + line_gap
     return y
 
 
@@ -102,7 +113,8 @@ def make_cover(photo_path, title_lines, style) -> Image.Image:
                           bottom_opacity=style.get("cover_dim", 210))
     d = ImageDraw.Draw(img)
     accent = style.get("accent", "#FFD84D")
-    draw_centered_block(d, W / 2, H - 640, title_lines, load_font(104), "white")
+    draw_centered_block(d, W / 2, H - 640, title_lines, load_font(104), "white",
+                        shrink=True)
     # підказка "гортай"
     hint = style.get("swipe_hint", "гортай →")
     f_hint = load_font(44)
@@ -123,7 +135,7 @@ def make_body(photo_path, title_lines, idx, total, style) -> Image.Image:
     # акцентна риска
     d.rectangle([W / 2 - 60, 165, W / 2 + 60, 172], fill=accent)
     title, *rest = title_lines
-    y = draw_centered_block(d, W / 2, 420, [title], load_font(76), "white")
+    y = draw_centered_block(d, W / 2, 420, [title], load_font(76), "white", shrink=True)
     if rest:
         draw_centered_block(d, W / 2, y + 40, rest, load_font(48), (235, 235, 235))
     return img
@@ -133,7 +145,7 @@ def make_final(photo_path, cta_lines, style) -> Image.Image:
     img = full_dim(fit_photo(photo_path), opacity=style.get("final_dim", 190))
     d = ImageDraw.Draw(img)
     accent = style.get("accent", "#FFD84D")
-    draw_centered_block(d, W / 2, 480, cta_lines, load_font(72), accent)
+    draw_centered_block(d, W / 2, 480, cta_lines, load_font(72), accent, shrink=True)
     sub = style.get("final_sub", "підписуйся, буде ще")
     f_s = load_font(44)
     sw = d.textlength(sub, font=f_s)
