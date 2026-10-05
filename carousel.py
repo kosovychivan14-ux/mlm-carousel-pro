@@ -222,14 +222,19 @@ def word_metrics(draw, word: str, size: int):
 
 
 def parse_rich(text: str):
-    """Розбиває текст на слова: *акцент* -> (слово, True), решта -> (слово, False)."""
+    """Розбиває текст на слова: *акцент* -> (слово, True), решта -> (слово, False).
+    Акцент працює навіть всередині слова: Промпт-*інженерія* -> ('Промпт-', False), ('інженерія', True).
+    (Фікс 2026-10-02: раніше акцент *всередині* слова рендерився буквально зі зірочкою.)"""
     tokens = []
-    for m in re.finditer(r'\*([^*]+)\*|(\S+)', text):
-        if m.group(1) is not None:
-            for w_ in m.group(1).split():
-                tokens.append((w_, True))
-        else:
-            tokens.append((m.group(2), False))
+    pos = 0
+    for m in re.finditer(r'\*([^*]+)\*', text):
+        for w in text[pos:m.start()].split():
+            tokens.append((w, False))
+        for w in m.group(1).split():
+            tokens.append((w, True))
+        pos = m.end()
+    for w in text[pos:].split():
+        tokens.append((w, False))
     return tokens
 
 
@@ -267,7 +272,12 @@ def draw_rich_block(img, x, y, tokens, size, max_w, fill, accent_fill,
     sp_cache = {}
     yy = y
     for words, lw in lines:
-        xx = x if align == "left" else x + max_w - lw
+        if align == "left":
+            xx = x
+        elif align == "right":
+            xx = x + max_w - lw
+        else:  # center
+            xx = x + (max_w - lw) / 2
         for i, (word, acc, f, ww) in enumerate(words):
             if i:
                 xx += sp_cache.setdefault(s, probe.textlength(" ", font=load_font(s)))
@@ -285,14 +295,175 @@ def draw_rich_block(img, x, y, tokens, size, max_w, fill, accent_fill,
 def side_dim_gradient(img: Image.Image, side: str, alpha=225, fade=0.66) -> Image.Image:
     """Затемнення з боку тексту для читабельності."""
     w, h = img.size
-    mask = Image.new("L", (w, 1))
-    for xx in range(w):
-        t = xx / w if side == "left" else 1 - xx / w
+    if side in ("top", "bottom", "center", "split"):
+        # вертикальний градієнт для нових режимів (top/bottom/center/split)
+        mask = Image.new("L", (1, h))
+        for yy in range(h):
+            t = yy / h
+            if side == "top":
+                a = int(alpha * max(0.0, 1 - t / fade)) if t < fade else 0
+            elif side == "bottom":
+                u = 1 - t
+                a = int(alpha * max(0.0, 1 - u / fade)) if u < fade else 0
+            elif side == "center":
+                d = abs(t - 0.5) * 2
+                a = int(alpha * max(0.0, 1 - d / fade)) if d < fade else 0
+            else:  # split: затемнення зверху і знизу
+                e = min(t, 1 - t)
+                a = int(alpha * max(0.0, 1 - e / fade)) if e < fade else 0
+            mask.putpixel((0, yy), a)
+        mask = mask.resize((w, h))
+    else:
+        mask = Image.new("L", (w, 1))
+        for xx in range(w):
+            t = xx / w if side == "left" else 1 - xx / w
+            a = int(alpha * max(0.0, 1 - t / fade)) if t < fade else 0
+            mask.putpixel((xx, 0), a)
+        mask = mask.resize((w, h))
+    black = Image.new("RGB", (w, h), (0, 0, 0))
+    return Image.composite(black, img, mask)
+
+
+def v_dim_gradient(img: Image.Image, edge: str, alpha=225, fade=0.55) -> Image.Image:
+    """Вертикальне затемнення зверху (top) або знизу (bottom)."""
+    w, h = img.size
+    mask = Image.new("L", (1, h))
+    for yy in range(h):
+        t = yy / h if edge == "top" else 1 - yy / h
         a = int(alpha * max(0.0, 1 - t / fade)) if t < fade else 0
-        mask.putpixel((xx, 0), a)
+        mask.putpixel((0, yy), a)
     mask = mask.resize((w, h))
     black = Image.new("RGB", (w, h), (0, 0, 0))
     return Image.composite(black, img, mask)
+
+
+def rich_fit_size(tokens, size, max_w, line_gap, max_h, min_size):
+    """Повторює shrink-логіку draw_rich_block: повертає (size, height)."""
+    probe = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    s = size
+    while s > min_size:
+        _lines, h = rich_block_size(probe, tokens, s, max_w, line_gap)
+        if max_h is None or h <= max_h:
+            break
+        s -= 4
+    _lines, h = rich_block_size(probe, tokens, s, max_w, line_gap)
+    return s, h
+
+
+def draw_rich_on_overlay(ovl, x, y, tokens, size, max_w, fill, accent_fill,
+                         line_gap=14, max_h=None, min_size=48, align="left"):
+    """Малює текст на RGBA-оверлей (для компоновки перед alpha_composite)."""
+    return draw_rich_block(ovl, x, y, tokens, size, max_w, fill, accent_fill,
+                           line_gap=line_gap, max_h=max_h, min_size=min_size,
+                           align=align)
+
+
+def render_neon_layout(img, slide: dict, style: dict, layout: str) -> Image.Image:
+    """Layout'и топ/низ/центр/спліт/діагональ для унікальних композицій."""
+    accent = slide.get("accent") or style.get("accent", "#00E5FF")
+    accent_rgb = hex_to_rgb(accent)
+    text_fill = style.get("text_fill", "white")
+    sub_fill = style.get("subtitle_fill", "#E8ECF0")
+    margin = style.get("text_margin", 80)
+    text_w = slide.get("text_width", 880)
+    tsize = style.get("title_size", 88)
+    ssize = style.get("subtitle_size", 44)
+    lg = style.get("line_gap", 14)
+    sub_gap = style.get("sub_gap", 36)
+    min_s = style.get("title_min_size", 56)
+    tokens_t = parse_rich(slide["title"])
+    tokens_s = parse_rich(slide["subtitle"]) if slide.get("subtitle") else []
+    dim_a = style.get("side_dim_alpha", 225)
+    dim_f = style.get("side_dim_fade", 0.66)
+
+    if layout == "top":
+        img = v_dim_gradient(img, "top", alpha=dim_a, fade=dim_f)
+        x = (W - text_w) / 2
+        ovl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        top_y = slide.get("top_y", style.get("top_y", 110))
+        s1, _h1 = rich_fit_size(tokens_t, tsize, text_w, lg, 520, min_s)
+        y = draw_rich_on_overlay(ovl, x, top_y, tokens_t, s1, text_w, text_fill,
+                                 accent_rgb, line_gap=lg, min_size=s1,
+                                 align="center")
+        if tokens_s:
+            s2, _h2 = rich_fit_size(tokens_s, ssize, text_w, 12, 380, 34)
+            draw_rich_on_overlay(ovl, x, y + sub_gap, tokens_s, s2, text_w,
+                                 sub_fill, accent_rgb, line_gap=12,
+                                 min_size=s2, align="center")
+        img = Image.alpha_composite(img.convert("RGBA"), ovl).convert("RGB")
+    elif layout == "bottom":
+        img = v_dim_gradient(img, "bottom", alpha=dim_a, fade=dim_f)
+        s1, h1 = rich_fit_size(tokens_t, tsize, text_w, lg, 520, min_s)
+        s2, h2 = rich_fit_size(tokens_s, ssize, text_w, 12, 380, 34) if tokens_s else (ssize, 0)
+        total = h1 + (sub_gap + h2 if tokens_s else 0)
+        x = (W - text_w) / 2
+        y0 = H - margin - total
+        ovl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        y = draw_rich_on_overlay(ovl, x, y0, tokens_t, s1, text_w, text_fill,
+                                 accent_rgb, line_gap=lg, min_size=s1,
+                                 align="center")
+        if tokens_s:
+            draw_rich_on_overlay(ovl, x, y + sub_gap, tokens_s, s2, text_w,
+                                 sub_fill, accent_rgb, line_gap=12,
+                                 min_size=s2, align="center")
+        img = Image.alpha_composite(img.convert("RGBA"), ovl).convert("RGB")
+    elif layout == "center":
+        img = full_dim(img, opacity=style.get("body_dim", 150))
+        s1, h1 = rich_fit_size(tokens_t, tsize, text_w, lg, 560, min_s)
+        s2, h2 = rich_fit_size(tokens_s, ssize, text_w, 12, 400, 34) if tokens_s else (ssize, 0)
+        total = h1 + (sub_gap + h2 if tokens_s else 0)
+        x = (W - text_w) / 2
+        y0 = (H - total) / 2
+        ovl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        y = draw_rich_on_overlay(ovl, x, y0, tokens_t, s1, text_w, text_fill,
+                                 accent_rgb, line_gap=lg, min_size=s1,
+                                 align="center")
+        if tokens_s:
+            draw_rich_on_overlay(ovl, x, y + sub_gap, tokens_s, s2, text_w,
+                                 sub_fill, accent_rgb, line_gap=12,
+                                 min_size=s2, align="center")
+        img = Image.alpha_composite(img.convert("RGBA"), ovl).convert("RGB")
+    elif layout == "split":
+        # заголовок зверху, підзаголовок знизу
+        img = v_dim_gradient(v_dim_gradient(img, "top", alpha=dim_a, fade=0.45),
+                             "bottom", alpha=dim_a, fade=0.45)
+        x = (W - text_w) / 2
+        ovl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        s1, _h1 = rich_fit_size(tokens_t, tsize, text_w, lg, 460, min_s)
+        draw_rich_on_overlay(ovl, x, slide.get("top_y", 110), tokens_t, s1,
+                             text_w, text_fill, accent_rgb, line_gap=lg,
+                             min_size=s1, align="center")
+        if tokens_s:
+            s2, h2 = rich_fit_size(tokens_s, ssize, text_w, 12, 380, 34)
+            draw_rich_on_overlay(ovl, x, H - margin - h2, tokens_s, s2,
+                                 text_w, sub_fill, accent_rgb,
+                                 line_gap=12, min_size=s2, align="center")
+        img = Image.alpha_composite(img.convert("RGBA"), ovl).convert("RGB")
+    elif layout == "diag":
+        # текстовий блок нахилено вздовж діагоналі фону
+        img = side_dim_gradient(img, slide.get("side", "left"),
+                                alpha=dim_a, fade=dim_f)
+        angle = slide.get("diag_angle", -8)
+        s1, h1 = rich_fit_size(tokens_t, tsize, text_w, lg, 520, min_s)
+        s2, h2 = rich_fit_size(tokens_s, ssize, text_w, 12, 380, 34) if tokens_s else (ssize, 0)
+        total = h1 + (sub_gap + h2 if tokens_s else 0)
+        pad = 60
+        tw_, th_ = text_w + pad * 2, int(total + pad * 2)
+        band = Image.new("RGBA", (tw_, th_), (0, 0, 0, 0))
+        y = draw_rich_on_overlay(band, pad, pad, tokens_t, s1, text_w, text_fill,
+                                 accent_rgb, line_gap=lg, min_size=s1,
+                                 align="left")
+        if tokens_s:
+            draw_rich_on_overlay(band, pad, y + sub_gap, tokens_s, s2, text_w,
+                                 sub_fill, accent_rgb, line_gap=12,
+                                 min_size=s2, align="left")
+        band = band.rotate(angle, resample=Image.BICUBIC, expand=True)
+        ovl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        bx = slide.get("diag_x", 90)
+        by = slide.get("diag_y", int((H - band.height) / 2))
+        ovl.alpha_composite(band, (int(bx), int(by)))
+        img = Image.alpha_composite(img.convert("RGBA"), ovl).convert("RGB")
+    return img
 
 
 def neon_frame(img: Image.Image, inset=34, radius=44, width=5,
@@ -322,29 +493,39 @@ def fit_bg(bg_path: str) -> Image.Image:
 
 
 def render_neon_slide(bg_path: str, slide: dict, style: dict) -> Image.Image:
-    img = side_dim_gradient(
-        fit_bg(bg_path), slide.get("side", "left"),
-        alpha=style.get("side_dim_alpha", 225),
-        fade=style.get("side_dim_fade", 0.66))
-    d = ImageDraw.Draw(img)
+    layout = slide.get("layout", slide.get("side", "left"))
+    img = fit_bg(bg_path)
+    if layout in ("top", "bottom", "center", "split", "diag"):
+        img = render_neon_layout(img, slide, style, layout)
+        d = ImageDraw.Draw(img)
+    else:
+        img = side_dim_gradient(
+            img, slide.get("side", "left"),
+            alpha=style.get("side_dim_alpha", 225),
+            fade=style.get("side_dim_fade", 0.66))
+        d = ImageDraw.Draw(img)
     accent = slide.get("accent") or style.get("accent", "#00E5FF")
     accent_rgb = hex_to_rgb(accent)
-    margin = style.get("text_margin", 80)
-    text_w = slide.get("text_width", style.get("text_width", 640))
-    side = slide.get("side", "left")
-    x = margin if side == "left" else W - margin - text_w
-    top_y = slide.get("top_y", style.get("top_y", 110))
+    text_fill = style.get("text_fill", "white")
+    sub_fill = style.get("subtitle_fill", "#E8ECF0")
+    if layout not in ("top", "bottom", "center", "split", "diag"):
+        # класичні бічні колонки left/right
+        margin = style.get("text_margin", 80)
+        text_w = slide.get("text_width", style.get("text_width", 640))
+        side = slide.get("side", "left")
+        x = margin if side == "left" else W - margin - text_w
+        top_y = slide.get("top_y", style.get("top_y", 110))
 
-    y = draw_rich_block(img, x, top_y, parse_rich(slide["title"]),
-                        style.get("title_size", 88), text_w, "white",
-                        accent_rgb, line_gap=style.get("line_gap", 14),
-                        max_h=560, min_size=style.get("title_min_size", 56))
-    if slide.get("subtitle"):
-        draw_rich_block(img, x, y + style.get("sub_gap", 36),
-                        parse_rich(slide["subtitle"]),
-                        style.get("subtitle_size", 44), text_w,
-                        (232, 236, 240), accent_rgb,
-                        line_gap=12, max_h=420, min_size=34)
+        y = draw_rich_block(img, x, top_y, parse_rich(slide["title"]),
+                            style.get("title_size", 88), text_w, text_fill,
+                            accent_rgb, line_gap=style.get("line_gap", 14),
+                            max_h=560, min_size=style.get("title_min_size", 56))
+        if slide.get("subtitle"):
+            draw_rich_block(img, x, y + style.get("sub_gap", 36),
+                            parse_rich(slide["subtitle"]),
+                            style.get("subtitle_size", 44), text_w,
+                            sub_fill, accent_rgb,
+                            line_gap=12, max_h=420, min_size=34)
     if slide.get("frame"):
         fr = style.get("frame", {})
         img = neon_frame(img, inset=fr.get("inset", 34),
